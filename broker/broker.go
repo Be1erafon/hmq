@@ -368,7 +368,7 @@ func (b *Broker) handleConnection(typ int, conn net.Conn) {
 		willmsg = nil
 	}
 	info := info{
-		clientID:  msg.ClientIdentifier,
+		clientID:  msg.Username + "-" + msg.ClientIdentifier,
 		username:  msg.Username,
 		password:  msg.Password,
 		keepalive: msg.Keepalive,

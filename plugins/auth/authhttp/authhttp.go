@@ -1,13 +1,12 @@
 package authhttp
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"io/ioutil"
 	"net/http"
-	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/fhmq/hmq/logger"
@@ -68,18 +67,19 @@ func (a *authHTTP) CheckConnect(clientID, username, password string) bool {
 		}
 	}
 
-	data := url.Values{}
-	data.Add("username", username)
-	data.Add("clientid", clientID)
-	data.Add("password", password)
+	body, _ := json.Marshal(map[string]string{
+		"username": username,
+		"clientid": clientID,
+		"password": password,
+	})
 
-	req, err := http.NewRequest("POST", config.AuthURL, strings.NewReader(data.Encode()))
+	req, err := http.NewRequest("POST", config.AuthURL, bytes.NewBuffer(body))
 	if err != nil {
 		log.Error("new request super: ", zap.Error(err))
 		return false
 	}
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Content-Length", strconv.Itoa(len(data.Encode())))
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Content-Length", strconv.Itoa(len(body)))
 
 	resp, err := a.client.Do(req)
 	if err != nil {

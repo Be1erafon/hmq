@@ -406,7 +406,7 @@ func (c *client) processRouterPublish(packet *packets.PublishPacket) {
 
 func (c *client) processClientPublish(packet *packets.PublishPacket) {
 
-	topic := packet.TopicName
+	topic := "main/" + c.info.username + "/" + packet.TopicName
 
 	if !c.broker.CheckTopicAuth(PUB, c.info.clientID, c.info.username, c.info.remoteIP, topic) {
 		log.Error("Pub Topics Auth failed, ", zap.String("topic", topic), zap.String("ClientID", c.info.clientID))
@@ -472,7 +472,9 @@ func (c *client) ProcessPublishMessage(packet *packets.PublishPacket) {
 		}
 	}
 
-	err := c.topicsMgr.Subscribers([]byte(packet.TopicName), packet.Qos, &c.subs, &c.qoss)
+	topic := "main/" + c.info.username + "/" + packet.TopicName
+
+	err := c.topicsMgr.Subscribers([]byte(topic), packet.Qos, &c.subs, &c.qoss)
 	if err != nil {
 		log.Error("Error retrieving subscribers list: ", zap.String("ClientID", c.info.clientID))
 		return
@@ -538,10 +540,10 @@ func (c *client) processClientSubscribe(packet *packets.SubscribePacket) {
 	var retcodes []byte
 
 	for i, topic := range subTopics {
-		t := topic
+		t := "main/" + c.info.username + "/" + topic
 		//check topic auth for client
-		if !b.CheckTopicAuth(SUB, c.info.clientID, c.info.username, c.info.remoteIP, topic) {
-			log.Error("Sub topic Auth failed: ", zap.String("topic", topic), zap.String("ClientID", c.info.clientID))
+		if !b.CheckTopicAuth(SUB, c.info.clientID, c.info.username, c.info.remoteIP, t) {
+			log.Error("Sub topic Auth failed: ", zap.String("topic", t), zap.String("ClientID", c.info.clientID))
 			retcodes = append(retcodes, QosFailure)
 			continue
 		}
@@ -551,20 +553,20 @@ func (c *client) processClientSubscribe(packet *packets.SubscribePacket) {
 			Username:  c.info.username,
 			Action:    bridge.Subscribe,
 			Timestamp: time.Now().Unix(),
-			Topic:     topic,
+			Topic:     t,
 		})
 
 		groupName := ""
 		share := false
-		if strings.HasPrefix(topic, "$share/") {
-			substr := groupCompile.FindStringSubmatch(topic)
+		if strings.HasPrefix(t, "$share/") {
+			substr := groupCompile.FindStringSubmatch(t)
 			if len(substr) != 3 {
 				retcodes = append(retcodes, QosFailure)
 				continue
 			}
 			share = true
 			groupName = substr[1]
-			topic = substr[2]
+			t = substr[2]
 		}
 
 		c.subMapMu.Lock()
@@ -575,14 +577,14 @@ func (c *client) processClientSubscribe(packet *packets.SubscribePacket) {
 		c.subMapMu.Unlock()
 
 		sub := &subscription{
-			topic:     topic,
+			topic:     t,
 			qos:       qoss[i],
 			client:    c,
 			share:     share,
 			groupName: groupName,
 		}
 
-		rqos, err := c.topicsMgr.Subscribe([]byte(topic), qoss[i], sub)
+		rqos, err := c.topicsMgr.Subscribe([]byte(t), qoss[i], sub)
 		if err != nil {
 			log.Error("subscribe error, ", zap.Error(err), zap.String("ClientID", c.info.clientID))
 			retcodes = append(retcodes, QosFailure)
@@ -595,7 +597,7 @@ func (c *client) processClientSubscribe(packet *packets.SubscribePacket) {
 
 		_ = c.session.AddTopic(t, qoss[i])
 		retcodes = append(retcodes, rqos)
-		_ = c.topicsMgr.Retained([]byte(topic), &c.rmsgs)
+		_ = c.topicsMgr.Retained([]byte(t), &c.rmsgs)
 	}
 
 	suback.ReturnCodes = retcodes
@@ -636,29 +638,29 @@ func (c *client) processRouterSubscribe(packet *packets.SubscribePacket) {
 	var retcodes []byte
 
 	for i, topic := range subTopics {
-		t := topic
+		t := "main/" + c.info.username + "/" + topic
 		groupName := ""
 		share := false
-		if strings.HasPrefix(topic, "$share/") {
-			substr := groupCompile.FindStringSubmatch(topic)
+		if strings.HasPrefix(t, "$share/") {
+			substr := groupCompile.FindStringSubmatch(t)
 			if len(substr) != 3 {
 				retcodes = append(retcodes, QosFailure)
 				continue
 			}
 			share = true
 			groupName = substr[1]
-			topic = substr[2]
+			t = substr[2]
 		}
 
 		sub := &subscription{
-			topic:     topic,
+			topic:     t,
 			qos:       qoss[i],
 			client:    c,
 			share:     share,
 			groupName: groupName,
 		}
 
-		rqos, err := c.topicsMgr.Subscribe([]byte(topic), qoss[i], sub)
+		rqos, err := c.topicsMgr.Subscribe([]byte(t), qoss[i], sub)
 		if err != nil {
 			log.Error("subscribe error, ", zap.Error(err), zap.String("ClientID", c.info.clientID))
 			retcodes = append(retcodes, QosFailure)
@@ -670,7 +672,7 @@ func (c *client) processRouterSubscribe(packet *packets.SubscribePacket) {
 		c.subMapMu.Unlock()
 
 		c.routeSubMapMu.Lock()
-		addSubMap(c.routeSubMap, topic)
+		addSubMap(c.routeSubMap, t)
 		c.routeSubMapMu.Unlock()
 		retcodes = append(retcodes, rqos)
 	}
@@ -705,10 +707,11 @@ func (c *client) processRouterUnSubscribe(packet *packets.UnsubscribePacket) {
 	unSubTopics := packet.Topics
 
 	for _, topic := range unSubTopics {
+		t := "main/" + c.info.username + "/" + topic
 		c.subMapMu.Lock()
-		if sub, exist := c.subMap[topic]; exist {
+		if sub, exist := c.subMap[t]; exist {
 			c.routeSubMapMu.Lock()
-			if retainNum := delSubMap(c.routeSubMap, topic); retainNum > 0 {
+			if retainNum := delSubMap(c.routeSubMap, t); retainNum > 0 {
 				c.routeSubMapMu.Unlock()
 				c.subMapMu.Unlock()
 				continue
@@ -716,7 +719,7 @@ func (c *client) processRouterUnSubscribe(packet *packets.UnsubscribePacket) {
 			c.routeSubMapMu.Unlock()
 
 			_ = c.topicsMgr.Unsubscribe([]byte(sub.topic), sub)
-			delete(c.subMap, topic)
+			delete(c.subMap, t)
 		}
 		c.subMapMu.Unlock()
 	}
@@ -743,6 +746,7 @@ func (c *client) processClientUnSubscribe(packet *packets.UnsubscribePacket) {
 	unSubTopics := packet.Topics
 
 	for _, topic := range unSubTopics {
+		t := "main/" + c.info.username + "/" + topic
 		{
 			//publish kafka
 
@@ -751,17 +755,17 @@ func (c *client) processClientUnSubscribe(packet *packets.UnsubscribePacket) {
 				Username:  c.info.username,
 				Action:    bridge.Unsubscribe,
 				Timestamp: time.Now().Unix(),
-				Topic:     topic,
+				Topic:     t,
 			})
 
 		}
 
 		c.subMapMu.Lock()
-		sub, exist := c.subMap[topic]
+		sub, exist := c.subMap[t]
 		if exist {
 			_ = c.topicsMgr.Unsubscribe([]byte(sub.topic), sub)
-			_ = c.session.RemoveTopic(topic)
-			delete(c.subMap, topic)
+			_ = c.session.RemoveTopic(t)
+			delete(c.subMap, t)
 		}
 		c.subMapMu.Unlock()
 
